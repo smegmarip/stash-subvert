@@ -1,0 +1,13 @@
+name: Subvert
+description: Scans and extracts embedded subtitles in library.
+version: 0.0.1
+exec:
+  - python
+  - "{pluginDir}/subvert_functions.py"
+interface: raw
+tasks:
+  - name: Scan and Extract
+    description: Extract new embedded subtitles
+    defaultArgs:
+      name: ExtractAll
+      mode: ExtractAll
