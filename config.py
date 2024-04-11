@@ -5,4 +5,5 @@ default_settings = {
     "stash_tmpdir": "/root/stash_tmp/",
     "stash_logfile": "/root/.stash/stash.log",
     "batch_quantity": 10,
+    "subtitle_tag_id": 0,
 }

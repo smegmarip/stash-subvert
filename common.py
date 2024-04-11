@@ -17,6 +17,7 @@ from io import BytesIO
 from datetime import datetime
 from typing import Any, List, Tuple
 from glob import glob
+from subprocess import check_output, CalledProcessError, STDOUT
 
 try:
     import stashapi.log as log
@@ -52,7 +53,7 @@ STASH_URL = default_settings["stash_url"]
 STASH_TMP = default_settings["stash_tmpdir"]
 STASH_LOGFILE = default_settings["stash_logfile"]
 BATCH_QTY = default_settings["batch_quantity"]
-
+SUBTITLE_TAG_ID = default_settings["subtitle_tag_id"]
 warnings.filterwarnings("ignore")
 
 
@@ -138,6 +139,21 @@ def exit_plugin(msg=None, err=None):
     sys.exit()
 
 
+def system_call(command):
+    """
+    params:
+        command: list of strings, ex. `["ls", "-l"]`
+    returns: output, success
+    """
+    try:
+        output = check_output(command, stderr=STDOUT).decode()
+        success = True
+    except CalledProcessError as e:
+        output = e.output.decode()
+        success = False
+    return output, success
+
+
 def save_to_local(url, ext="jpg"):
     directory = STASH_TMP if STASH_TMP.endswith(os.path.sep) else (STASH_TMP + os.path.sep)
     # Generate a unique filename
@@ -207,4 +223,30 @@ def get_stash_video(vid_data):
         if raw["path"].lower().endswith(valid):
             return raw
 
+    return None
+
+
+def the_id(iter=[]):
+    return list(map(lambda x: x["id"] if isinstance(x, dict) and "id" in x else x, iter))
+
+
+def to_integer(iter=[]):
+    return list(map(lambda x: int(x), iter))
+
+
+def to_string(iter=[]):
+    return list(map(lambda x: str(x), iter))
+
+
+def prepare_stash_list(iter=[]):
+    return list(set(to_string(iter)))
+
+
+def update_scene(stash: StashInterface, id, tags=None):
+    payload = {"id": id}
+    if tags is not None and len(tags) > 0:
+        payload["tag_ids"] = prepare_stash_list(tags)
+
+    if len(payload.keys()) > 1:
+        return stash.update_scene(payload)
     return None

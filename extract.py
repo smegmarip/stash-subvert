@@ -1,14 +1,17 @@
 import json
 import os
-import subprocess
-import shutil
 import re
 import time
 import traceback
 from stashapi.stashapp import StashInterface
 from common import (
+    SUBTITLE_TAG_ID,
     get_stash_video,
     stash_log,
+    system_call,
+    the_id,
+    to_integer,
+    update_scene,
 )
 
 
@@ -17,14 +20,24 @@ def scan_scenes(stash: StashInterface, path=None, batch: int = 10):
     counter = 0
     timeout = 5
 
-    if path is None:
-        path = "\.(ogg|mkv)$"
+    params = {}
+    if SUBTITLE_TAG_ID:
+        params["tags"] = {"value": SUBTITLE_TAG_ID, "modifier": "EXCLUDES", "depth": 0}
+
+    if path:
+        # path = "\.(ogg|mkv)$"
+        params["path"] = {"value": path, "modifier": "MATCHES_REGEX"}
 
     while True:
         counter += 1
         _current, scenes = stash.find_scenes(
-            f={"path": {"value": path, "modifier": "MATCHES_REGEX"}},
-            filter={"per_page": batch, "page": counter},
+            f=params,
+            filter={
+                "per_page": batch,
+                "page": counter,
+                "sort": "updated_at",
+                "direction": "ASC",
+            },
             get_count=True,
         )
 
@@ -66,13 +79,14 @@ def extract_subtitles(stash: StashInterface, scene: dict):
             return
 
         scene_path = scene_data["path"]
+        tags = to_integer(the_id(scene["tags"]))
+        num_tags = len(tags)
         output_dir = os.path.dirname(scene_path)
 
         # Extract subtitle tracks from the video using ffmpeg
         cmd = ["ffmpeg", "-i", scene_path]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        stream_info = result.stderr if not result.stdout or result.stdout.isspace() else result.stdout
-        stash_log(stream_info, lvl="trace")
+        stream_info, _ = system_call(cmd)
+        stash_log(stream_info, lvl="debug")
         subtitle_tracks = re.findall(r"Stream #\d+:(\d+)(?:\(([^\)]+)\))?:[\t ]+Subtitle:.*", stream_info)
 
         if subtitle_tracks:
@@ -87,12 +101,24 @@ def extract_subtitles(stash: StashInterface, scene: dict):
                 # Check if subtitle file already exists
                 if os.path.exists(subtitle_path):
                     stash_log(f"Subtitle file {subtitle_path} already exists. Skipping extraction.", lvl="info")
+                    if SUBTITLE_TAG_ID != 0 and SUBTITLE_TAG_ID not in tags:
+                        tags.append(SUBTITLE_TAG_ID)
                     continue
 
                 # Extract subtitles to SRT format using ffmpeg
                 cmd = ["ffmpeg", "-i", scene_path, f"-map", f"0:s:{i}", "-c:s", "srt", subtitle_path]
-                subprocess.run(cmd)
+                system_call(cmd)
                 stash_log(f"Subtitle file: {subtitle_name} created.", lvl="info")
+                if SUBTITLE_TAG_ID != 0 and SUBTITLE_TAG_ID not in tags:
+                    tags.append(SUBTITLE_TAG_ID)
+
+            if SUBTITLE_TAG_ID != 0 and len(tags) != num_tags:
+                update_scene(stash=stash, id=scene["id"], tags=tags)
+                stash_log("update_scene", f"scene #{scene['id']} updated.", lvl="info")
+
     except Exception as ex:
         stash_log(f"{scene_path}: {ex}", lvl="error")
         stash_log(traceback.format_exc(), lvl="error")
+        if len(tags) != num_tags:
+            update_scene(stash=stash, id=scene["id"], tags=tags)
+            stash_log("update_scene", f"scene #{scene['id']} updated.", lvl="info")
